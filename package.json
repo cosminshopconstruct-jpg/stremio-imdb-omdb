@@ -2,6 +2,9 @@
   "name": "stremio-imdb-omdb-other",
   "version": "3.0.0",
   "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "stremio-addon-sdk": "^1.6.10",
     "stremio-addon-linter": "^1.0.3",
@@ -10,5 +13,8 @@
     "router": "^1.3.5",
     "cors": "^2.8.5",
     "opn": "^6.0.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
