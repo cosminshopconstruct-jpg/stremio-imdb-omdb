@@ -1,14 +1,9 @@
 {
-  "name": "stremio-imdb-omdb-6plus",
-  "version": "2.0.0",
-  "description": "Stremio addon for Movies & Series IMDb 6+ with filters",
+  "name": "stremio-imdb-omdb-other",
+  "version": "3.0.0",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
   "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^2.6.7",
-    "stremio-addon-sdk": "^1.6.10"
+    "stremio-addon-sdk": "^1.6.10",
+    "node-fetch": "^2.6.7"
   }
 }
