@@ -49,6 +49,12 @@ const builder = new addonBuilder({
   ]
 });
 
+// ======== IMPORTANT: ensure manifest exists ========
+const manifest = builder.manifest || builder.getManifest?.();
+if (!manifest) {
+  console.error("ERROR: builder.manifest is undefined!");
+}
+
 async function fetchFromCinemeta(type) {
   const url = `https://v3-cinemeta.strem.io/catalog/${type}/top.json`;
   const res = await fetch(url);
@@ -81,7 +87,14 @@ async function fetchOMDb(imdbId) {
 }
 
 builder.defineCatalogHandler(async ({ id, extra }) => {
-  const catalog = builder.manifest.catalogs.find(c => c.id === id);
+  // === safe check ===
+  const manifest = builder.manifest || builder.getManifest?.();
+  if (!manifest) {
+    console.error("ERROR: manifest undefined in handler");
+    return { metas: [] };
+  }
+
+  const catalog = manifest.catalogs.find(c => c.id === id);
   if (!catalog) return { metas: [] };
 
   const base = await fetchFromCinemeta(catalog.typeFilter);
