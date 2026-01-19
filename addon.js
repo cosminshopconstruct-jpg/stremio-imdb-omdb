@@ -1,7 +1,7 @@
 const { addonBuilder } = require("stremio-addon-sdk");
 const fetch = require("node-fetch");
 
-// 🔑 OMDb KEY (hardcoded, cum ai cerut)
+// 🔑 OMDb KEY (hardcoded)
 const OMDB_KEY = "a6e0bfcf";
 
 const GENRES = [
@@ -10,7 +10,6 @@ const GENRES = [
   "Mystery","Romance","Sci-Fi","Sport","Thriller","War","Western"
 ];
 
-// helper pt generare catalog
 function makeCatalog(id, name, type, min, max) {
   return {
     type: "other",
@@ -30,7 +29,6 @@ function makeCatalog(id, name, type, min, max) {
   };
 }
 
-// ================= MANIFEST =================
 const builder = new addonBuilder({
   id: "org.imdb.omdb.other.full",
   version: "3.0.0",
@@ -51,64 +49,37 @@ const builder = new addonBuilder({
   ]
 });
 
-// ================= HELPERS =================
-async function fetchWithTimeout(url, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function fetchFromCinemeta(type) {
   const url = `https://v3-cinemeta.strem.io/catalog/${type}/top.json`;
+  const res = await fetch(url);
 
-  try {
-    const res = await fetchWithTimeout(url);
-
-    if (!res.ok) {
-      console.error("Cinemeta HTTP error:", res.status, res.statusText);
-      return [];
-    }
-
-    const json = await res.json();
-    return json.metas || [];
-  } catch (err) {
-    console.error("Cinemeta fetch failed:", err.message || err);
+  if (!res.ok) {
+    console.error("Cinemeta HTTP error", res.status);
     return [];
   }
+
+  const json = await res.json();
+  return json.metas || [];
 }
 
 async function fetchOMDb(imdbId) {
   const url = `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`;
+  const res = await fetch(url);
 
-  try {
-    const res = await fetchWithTimeout(url);
-
-    if (!res.ok) {
-      console.error("OMDb HTTP error:", res.status, res.statusText, "for", imdbId);
-      return null;
-    }
-
-    const json = await res.json();
-
-    if (json.Response === "False") {
-      console.error("OMDb API error:", json.Error, "for", imdbId);
-      return null;
-    }
-
-    return json;
-  } catch (err) {
-    console.error("OMDb fetch failed:", err.message || err, "for", imdbId);
+  if (!res.ok) {
+    console.error("OMDb HTTP error", res.status);
     return null;
   }
+
+  const json = await res.json();
+  if (json.Response === "False") {
+    console.error("OMDb API error", json.Error);
+    return null;
+  }
+
+  return json;
 }
 
-// ================= CATALOG HANDLER =================
 builder.defineCatalogHandler(async ({ id, extra }) => {
   const catalog = builder.manifest.catalogs.find(c => c.id === id);
   if (!catalog) return { metas: [] };
@@ -121,13 +92,9 @@ builder.defineCatalogHandler(async ({ id, extra }) => {
     if (!omdb) continue;
 
     const rating = parseFloat(omdb.imdbRating);
+    if (!rating || rating < catalog.ratingMin || rating >= catalog.ratingMax) continue;
 
-    // skip if no rating
-    if (!rating || Number.isNaN(rating)) continue;
-
-    if (rating < catalog.ratingMin || rating >= catalog.ratingMax) continue;
-
-    if (extra.genre && !omdb.Genre?.includes(extra.genre)) continue;
+    if (extra?.genre && !omdb.Genre?.includes(extra.genre)) continue;
 
     metas.push({
       id: item.id,
