@@ -32,7 +32,8 @@ function makeCatalog(id, name, type, min, max) {
   };
 }
 
-const builder = new addonBuilder({
+// MANIFEST (păstrăm separat)
+const manifest = {
   id: "org.imdb.omdb.other.full",
   version: "3.0.0",
   name: "IMDb OMDb (Other) - TMDb",
@@ -50,43 +51,79 @@ const builder = new addonBuilder({
     makeCatalog("series_8_9", "Series 8-9", "series", 8, 9),
     makeCatalog("series_9_10", "Series 9-10", "series", 9, 10)
   ]
-});
+};
 
-async function fetchFromTMDb(type, genre, minRating, maxRating) {
+const builder = new addonBuilder(manifest);
+
+// TMDb gen mapping (nume -> id)
+const TMDB_GENRES = {
+  "Action": 28,
+  "Adventure": 12,
+  "Animation": 16,
+  "Biography": 1,
+  "Comedy": 35,
+  "Crime": 80,
+  "Documentary": 99,
+  "Drama": 18,
+  "Family": 10751,
+  "Fantasy": 14,
+  "History": 36,
+  "Horror": 27,
+  "Mystery": 9648,
+  "Romance": 10749,
+  "Sci-Fi": 878,
+  "Sport": 10762,
+  "Thriller": 53,
+  "War": 10752,
+  "Western": 37
+};
+
+async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 3) {
   const kind = type === "movie" ? "movie" : "tv";
 
-  const url = new URL(`https://api.themoviedb.org/3/discover/${kind}`);
-  url.searchParams.set("api_key", TMDB_KEY);
-  url.searchParams.set("language", "en-US");
-  url.searchParams.set("sort_by", "vote_average.desc");
-  url.searchParams.set("vote_count.gte", "100"); // să evităm rating-uri false
-  url.searchParams.set("vote_average.gte", String(minRating));
-  url.searchParams.set("vote_average.lt", String(maxRating));
-  url.searchParams.set("page", "1");
+  const results = [];
 
-  // dacă există gen
-  if (genre) {
-    // TMDb folosește id-uri pentru genuri; aici folosim nume simple => simplu workaround:
-    // nu putem mapa corect fără listă genuri TMDb
-    // așa că îl ignorăm (dacă vrei genuri reale, îți dau mapping)
+  for (let page = 1; page <= pages; page++) {
+    const url = new URL(`https://api.themoviedb.org/3/discover/${kind}`);
+    url.searchParams.set("api_key", TMDB_KEY);
+    url.searchParams.set("language", "en-US");
+    url.searchParams.set("sort_by", "vote_average.desc");
+    url.searchParams.set("vote_count.gte", "50"); // mai puțin strict pentru mai multe rezultate
+    url.searchParams.set("vote_average.gte", String(minRating));
+    url.searchParams.set("vote_average.lt", String(maxRating));
+    url.searchParams.set("page", String(page));
+
+    if (genre && TMDB_GENRES[genre]) {
+      url.searchParams.set("with_genres", String(TMDB_GENRES[genre]));
+    }
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      console.error("TMDb HTTP error", res.status);
+      continue;
+    }
+
+    const json = await res.json();
+    const items = json.results || [];
+    results.push(...items);
   }
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    console.error("TMDb HTTP error", res.status);
-    return [];
-  }
-
-  const json = await res.json();
-  return json.results || [];
+  return results;
 }
 
 builder.defineCatalogHandler(async ({ id, extra }) => {
-  const catalog = builder.manifest.catalogs.find(c => c.id === id);
+  const catalog = manifest.catalogs.find(c => c.id === id);
   if (!catalog) return { metas: [] };
 
   const genre = extra?.genre || null;
-  const base = await fetchFromTMDb(catalog.typeFilter, genre, catalog.ratingMin, catalog.ratingMax);
+
+  const base = await fetchFromTMDb(
+    catalog.typeFilter,
+    genre,
+    catalog.ratingMin,
+    catalog.ratingMax,
+    3 // pagini
+  );
 
   const metas = base.map(item => ({
     id: catalog.typeFilter === "movie" ? `tmdb:movie:${item.id}` : `tmdb:tv:${item.id}`,
