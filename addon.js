@@ -48,18 +48,29 @@ const builder = new addonBuilder({
   ]
 })
 
+// ======== TIMEOUT FETCH ========
 async function fetchFromTMDb(type, page) {
-  const url = `https://api.themoviedb.org/3/${type}/top_rated?api_key=${TMDB_KEY}&language=en-US&page=${page}`
-  const res = await fetch(url)
-  const json = await res.json()
-  return json
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000) // 8 sec timeout
+
+  try {
+    const url = `https://api.themoviedb.org/3/${type}/top_rated?api_key=${TMDB_KEY}&language=en-US&page=${page}`
+    const res = await fetch(url, { signal: controller.signal })
+    const json = await res.json()
+    return json
+  } catch (e) {
+    return { results: [], total_pages: 1 }
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
+// ======== HANDLER ========
 builder.defineCatalogHandler(async ({ id, extra, pagination }) => {
   const catalog = builder.manifest.catalogs.find(c => c.id === id)
   if (!catalog) return { metas: [] }
 
-  const page = pagination && pagination.page ? pagination.page : 1
+  const page = (pagination && pagination.page) ? pagination.page : 1
   const type = catalog.typeFilter === "movie" ? "movie" : "tv"
 
   const base = await fetchFromTMDb(type, page)
@@ -68,15 +79,16 @@ builder.defineCatalogHandler(async ({ id, extra, pagination }) => {
   for (const item of (base.results || [])) {
     const rating = parseFloat(item.vote_average)
 
-    // filtrare corectă
+    // filtrare corectă (nu mai sare peste interval)
     if (!rating || rating < catalog.ratingMin || rating >= catalog.ratingMax) continue
 
-    // filtrare gen (TMDb folosește genre_ids)
+    // filtrare gen
     if (extra.genre) {
       const genreId = getGenreId(extra.genre)
       if (genreId && !item.genre_ids?.includes(genreId)) continue
     }
 
+    // rating 3 zecimale doar pentru afișare
     const rating3 = parseFloat(rating.toFixed(3))
 
     metas.push({
@@ -97,6 +109,7 @@ builder.defineCatalogHandler(async ({ id, extra, pagination }) => {
   }
 })
 
+// ======== GENRE MAP (TMDb) ========
 function getGenreId(genreName) {
   const map = {
     Action: 28,
