@@ -6,6 +6,7 @@
     "stremio-addon-sdk": "^1.6.10",
     "stremio-addon-linter": "^1.0.3",
     "node-fetch": "^2.6.7",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "router": "^1.3.5"
   }
 }
