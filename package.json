@@ -1,0 +1,13 @@
+{
+  "name": "stremio-imdb-omdb",
+  "version": "1.0.0",
+  "description": "Stremio catalog filtered by IMDb rating using OMDb",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "stremio-addon-sdk": "^1.6.10",
+    "node-fetch": "^2.6.7"
+  }
+}
