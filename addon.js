@@ -1,83 +1,95 @@
-const { addonBuilder } = require("stremio-addon-sdk");
-const fetch = require("node-fetch");
+const { addonBuilder } = require("stremio-addon-sdk")
+const fetch = require("node-fetch")
 
-const OMDB_KEY = process.env.OMDB_KEY;
+// 🔑 OMDb KEY (hardcoded, cum ai cerut)
+const OMDB_KEY = "a6e0bfcf"
 
-const genres = [
-  "Action","Adventure","Animation","Biography","Comedy","Crime","Documentary", "Drama", "Family","Fantasy","History", "Horror","Mystery","Romance", "Sci-Fi","Sport" , "Thriller" , "War" ,"Western"
-];
+const GENRES = [
+  "Action","Adventure","Animation","Biography","Comedy","Crime",
+  "Documentary","Drama","Family","Fantasy","History","Horror",
+  "Mystery","Romance","Sci-Fi","Sport","Thriller","War","Western"
+]
 
-const ratings = [
-  { id: "6-7", min: 6, max: 7 },
-  { id: "7-8", min: 7, max: 8 },
-  { id: "8-9", min: 8, max: 9 },
-  { id: "9-10", min: 9, max: 10 }
-];
+// helper pt generare catalog
+function makeCatalog(id, name, type, min, max) {
+  return {
+    type: "other",
+    id,
+    name,
+    extra: [
+      {
+        name: "genre",
+        options: GENRES,
+        isRequired: false
+      }
+    ],
+    extraSupported: ["genre"],
+    typeFilter: type,
+    ratingMin: min,
+    ratingMax: max
+  }
+}
 
+// ================= MANIFEST =================
 const builder = new addonBuilder({
-  id: "org.imdb.omdb.catalog.v2",
-  version: "2.0.0",
-  name: "IMDb OMDb 6+ Movies & Series",
-  description: "Movies & Series IMDb 6+ with Rating and Genre filters",
+  id: "org.imdb.omdb.other.full",
+  version: "3.0.0",
+  name: "IMDb OMDb (Other)",
+  description: "Movies & Series by rating & genre",
   resources: ["catalog"],
-  types: ["movie", "series"],
+  types: ["other"],
   catalogs: [
-    {
-      type: "movie",
-      id: "movies6",
-      name: "Movies 6+",
-      extra: [
-        { name: "rating", options: ratings.map(r => r.id) },
-        { name: "genre", options: genres }
-      ]
-    },
-    {
-      type: "series",
-      id: "series6",
-      name: "Series 6+",
-      extra: [
-        { name: "rating", options: ratings.map(r => r.id) },
-        { name: "genre", options: genres }
-      ]
-    }
+    makeCatalog("movies_6_7", "Movies 6-7", "movie", 6, 7),
+    makeCatalog("movies_7_8", "Movies 7-8", "movie", 7, 8),
+    makeCatalog("movies_8_9", "Movies 8-9", "movie", 8, 9),
+    makeCatalog("movies_9_10", "Movies 9-10", "movie", 9, 10),
+
+    makeCatalog("series_6_7", "Series 6-7", "series", 6, 7),
+    makeCatalog("series_7_8", "Series 7-8", "series", 7, 8),
+    makeCatalog("series_8_9", "Series 8-9", "series", 8, 9),
+    makeCatalog("series_9_10", "Series 9-10", "series", 9, 10)
   ]
-});
+})
 
-builder.defineCatalogHandler(async ({ type, extra }) => {
-  const ratingFilter = ratings.find(r => r.id === extra.rating) || ratings[0];
-  const genre = extra.genre || "";
+// ================= HELPERS =================
+async function fetchFromCinemeta(type) {
+  const url = `https://v3-cinemeta.strem.io/catalog/${type}/top.json`
+  const res = await fetch(url)
+  const json = await res.json()
+  return json.metas || []
+}
 
-  const url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&s=${genre || "the"}&type=${type}`;
+async function fetchOMDb(imdbId) {
+  const url = `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`
+  const res = await fetch(url)
+  return res.json()
+}
 
-  const res = await fetch(url);
-  const data = await res.json();
+// ================= CATALOG HANDLER =================
+builder.defineCatalogHandler(async ({ id, extra }) => {
+  const catalog = builder.manifest.catalogs.find(c => c.id === id)
+  if (!catalog) return { metas: [] }
 
-  if (!data.Search) return { metas: [] };
+  const base = await fetchFromCinemeta(catalog.typeFilter)
+  const metas = []
 
-  const metas = [];
+  for (const item of base.slice(0, 30)) {
+    const omdb = await fetchOMDb(item.id)
+    const rating = parseFloat(omdb.imdbRating)
 
-  for (const item of data.Search) {
-    const detailRes = await fetch(
-      `https://www.omdbapi.com/?apikey=${OMDB_KEY}&i=${item.imdbID}`
-    );
-    const details = await detailRes.json();
+    if (!rating || rating < catalog.ratingMin || rating >= catalog.ratingMax) continue
+    if (extra.genre && !omdb.Genre?.includes(extra.genre)) continue
 
-    const imdb = parseFloat(details.imdbRating);
-    if (isNaN(imdb)) continue;
-
-    if (imdb >= ratingFilter.min && imdb < ratingFilter.max) {
-      metas.push({
-        id: details.imdbID,
-        type,
-        name: details.Title,
-        poster: details.Poster !== "N/A" ? details.Poster : null,
-        imdbRating: imdb,
-        releaseInfo: details.Year
-      });
-    }
+    metas.push({
+      id: item.id,
+      type: catalog.typeFilter,
+      name: item.name,
+      poster: item.poster,
+      imdbRating: rating
+    })
   }
 
-  return { metas };
-});
+  return { metas }
+})
 
-module.exports = builder.getInterface();
+module.exports = builder
