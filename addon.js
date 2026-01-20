@@ -7,6 +7,15 @@ const TMDB_KEY = "4abf1e647b12f1751bb0303e52a1e989";
 // base URL pentru poze TMDb
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
+// limbi acceptate
+const LANGUAGES = [
+  "en","es","ca","fr","de","it","pt","ro",
+  "sv","no","da","cs","pl","nl","el","sr"
+];
+
+const MIN_YEAR = 1980;
+const CURRENT_YEAR = new Date().getFullYear();
+
 const GENRES = [
   "Action","Adventure","Animation","Biography","Comedy","Crime",
   "Documentary","Drama","Family","Fantasy","History","Horror",
@@ -32,12 +41,12 @@ function makeCatalog(id, name, type, min, max) {
   };
 }
 
-// MANIFEST (păstrăm separat)
+// MANIFEST
 const manifest = {
   id: "org.imdb.omdb.other.full",
-  version: "3.0.0",
+  version: "3.1.0",
   name: "IMDb OMDb (Other) - TMDb",
-  description: "Movies & Series by rating & genre (TMDb)",
+  description: "Movies & Series by rating, genre, language & year (TMDb)",
   resources: ["catalog"],
   types: ["other"],
   catalogs: [
@@ -55,7 +64,7 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// TMDb gen mapping (nume -> id)
+// TMDb genre mapping
 const TMDB_GENRES = {
   "Action": 28,
   "Adventure": 12,
@@ -78,46 +87,46 @@ const TMDB_GENRES = {
   "Western": 37
 };
 
-async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 3) {
+async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 2) {
   const kind = type === "movie" ? "movie" : "tv";
   const results = [];
+  const dateField = type === "movie"
+    ? "primary_release_date"
+    : "first_air_date";
 
-  for (let page = 1; page <= pages; page++) {
-    const url = new URL(`https://api.themoviedb.org/3/discover/${kind}`);
-    url.searchParams.set("api_key", TMDB_KEY);
-    url.searchParams.set("language", "en-US");
-    url.searchParams.set("sort_by", "vote_average.desc");
-    url.searchParams.set("vote_count.gte", "50");
-    url.searchParams.set("vote_average.gte", String(minRating));
-    url.searchParams.set("vote_average.lt", String(maxRating));
-    url.searchParams.set("page", String(page));
+  for (const lang of LANGUAGES) {
+    for (let page = 1; page <= pages; page++) {
+      const url = new URL(`https://api.themoviedb.org/3/discover/${kind}`);
+      url.searchParams.set("api_key", TMDB_KEY);
+      url.searchParams.set("language", "en-US");
+      url.searchParams.set("sort_by", "vote_average.desc");
+      url.searchParams.set("vote_count.gte", "150");
+      url.searchParams.set("vote_average.gte", String(minRating));
+      url.searchParams.set("vote_average.lt", String(maxRating));
+      url.searchParams.set("with_original_language", lang);
+      url.searchParams.set(`${dateField}.gte`, `${MIN_YEAR}-01-01`);
+      url.searchParams.set(`${dateField}.lte`, `${CURRENT_YEAR}-12-31`);
+      url.searchParams.set("page", String(page));
 
-    if (genre && TMDB_GENRES[genre]) {
-      url.searchParams.set("with_genres", String(TMDB_GENRES[genre]));
-    }
-
-    // timeout 15 sec
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const res = await fetch(url.toString(), { signal: controller.signal });
-
-      if (!res.ok) {
-        console.error("TMDb HTTP error", res.status);
-        continue;
+      if (genre && TMDB_GENRES[genre]) {
+        url.searchParams.set("with_genres", String(TMDB_GENRES[genre]));
       }
 
-      const json = await res.json();
-      const items = json.results || [];
-      results.push(...items);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-    } catch (e) {
-      console.error("TMDb fetch error", e.message);
-      continue;
+      try {
+        const res = await fetch(url.toString(), { signal: controller.signal });
+        if (!res.ok) continue;
 
-    } finally {
-      clearTimeout(timeout);
+        const json = await res.json();
+        results.push(...(json.results || []));
+
+      } catch (e) {
+        continue;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
   }
 
@@ -135,24 +144,29 @@ builder.defineCatalogHandler(async ({ id, extra }) => {
     genre,
     catalog.ratingMin,
     catalog.ratingMax,
-    3 // pagini
+    2
   );
+
+  const seen = new Set();
 
   const metas = base
     .filter(item => {
-      const rating = parseFloat(item.vote_average);
-      return rating >= catalog.ratingMin && rating < catalog.ratingMax;
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
     })
     .map(item => {
       const rating = parseFloat(item.vote_average);
-      const rating3 = parseFloat(rating.toFixed(3)); // 3 zecimale
-
       return {
-        id: catalog.typeFilter === "movie" ? `tmdb:movie:${item.id}` : `tmdb:tv:${item.id}`,
+        id: catalog.typeFilter === "movie"
+          ? `tmdb:movie:${item.id}`
+          : `tmdb:tv:${item.id}`,
         type: catalog.typeFilter,
         name: catalog.typeFilter === "movie" ? item.title : item.name,
-        poster: item.poster_path ? `${TMDB_IMAGE_BASE}${item.poster_path}` : null,
-        imdbRating: rating3
+        poster: item.poster_path
+          ? `${TMDB_IMAGE_BASE}${item.poster_path}`
+          : null,
+        imdbRating: parseFloat(rating.toFixed(3))
       };
     });
 
