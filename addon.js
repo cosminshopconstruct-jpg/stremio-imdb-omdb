@@ -4,7 +4,7 @@ const fetch = require("node-fetch");
 // 🔑 TMDb KEY
 const TMDB_KEY = "4abf1e647b12f1751bb0303e52a1e989";
 
-// base URL pentru poze TMDb
+// base URL pentru poze
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
 // limbi acceptate
@@ -44,7 +44,7 @@ function makeCatalog(id, name, type, min, max) {
 // MANIFEST
 const manifest = {
   id: "org.imdb.omdb.other.full",
-  version: "3.1.0",
+  version: "3.1.1",
   name: "IMDb OMDb (Other) - TMDb",
   description: "Movies & Series by rating, genre, language & year (TMDb)",
   resources: ["catalog"],
@@ -90,9 +90,8 @@ const TMDB_GENRES = {
 async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 2) {
   const kind = type === "movie" ? "movie" : "tv";
   const results = [];
-  const dateField = type === "movie"
-    ? "primary_release_date"
-    : "first_air_date";
+  const dateField =
+    type === "movie" ? "primary_release_date" : "first_air_date";
 
   for (const lang of LANGUAGES) {
     for (let page = 1; page <= pages; page++) {
@@ -109,7 +108,7 @@ async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 2) {
       url.searchParams.set("page", String(page));
 
       if (genre && TMDB_GENRES[genre]) {
-        url.searchParams.set("with_genres", String(TMDB_GENRES[genre]));
+        url.searchParams.set("with_genres", TMDB_GENRES[genre]);
       }
 
       const controller = new AbortController();
@@ -121,8 +120,7 @@ async function fetchFromTMDb(type, genre, minRating, maxRating, pages = 2) {
 
         const json = await res.json();
         results.push(...(json.results || []));
-
-      } catch (e) {
+      } catch (_) {
         continue;
       } finally {
         clearTimeout(timeout);
@@ -151,24 +149,34 @@ builder.defineCatalogHandler(async ({ id, extra }) => {
 
   const metas = base
     .filter(item => {
+      const rating = parseFloat(item.vote_average);
+
+      // FILTRARE CORECTĂ PE NOTE
+      if (rating < catalog.ratingMin || rating >= catalog.ratingMax) {
+        return false;
+      }
+
+      // eliminare duplicate
       if (seen.has(item.id)) return false;
       seen.add(item.id);
+
       return true;
     })
-    .map(item => {
-      const rating = parseFloat(item.vote_average);
-      return {
-        id: catalog.typeFilter === "movie"
+    .map(item => ({
+      id:
+        catalog.typeFilter === "movie"
           ? `tmdb:movie:${item.id}`
           : `tmdb:tv:${item.id}`,
-        type: catalog.typeFilter,
-        name: catalog.typeFilter === "movie" ? item.title : item.name,
-        poster: item.poster_path
-          ? `${TMDB_IMAGE_BASE}${item.poster_path}`
-          : null,
-        imdbRating: parseFloat(rating.toFixed(3))
-      };
-    });
+      type: catalog.typeFilter,
+      name:
+        catalog.typeFilter === "movie"
+          ? item.title
+          : item.name,
+      poster: item.poster_path
+        ? `${TMDB_IMAGE_BASE}${item.poster_path}`
+        : null,
+      imdbRating: parseFloat(item.vote_average.toFixed(3))
+    }));
 
   return { metas };
 });
